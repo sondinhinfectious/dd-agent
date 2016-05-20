@@ -3,7 +3,7 @@
 # Licensed under Simplified BSD License (see LICENSE)
 
 '''
-Redis checks
+Disque checks
 '''
 # stdlib
 from collections import defaultdict
@@ -14,19 +14,14 @@ import time
 import disq
 
 # project
-# from checks import AgentCheck
-AgentCheck = object
+from checks import AgentCheck
 
 DEFAULT_MAX_SLOW_ENTRIES = 128
 MAX_SLOW_ENTRIES_KEY = "slowlog-max-len"
 
-REPL_KEY = 'master_link_status'
-LINK_DOWN_KEY = 'master_link_down_since_seconds'
-
 
 class Disque(AgentCheck):
     db_key_pattern = re.compile(r'^db\d+')
-    slave_key_pattern = re.compile(r'^slave\d+')
     subkeys = ['keys', 'expires']
 
     SOURCE_TYPE_NAME = 'disque'
@@ -35,12 +30,9 @@ class Disque(AgentCheck):
         # Append-only metrics
         'aof_last_rewrite_time_sec':    'disque.aof.last_rewrite_time',
         'aof_rewrite_in_progress':      'disque.aof.rewrite',
-        'aof_current_size':             'disque.aof.size',
-        'aof_buffer_length':            'disque.aof.buffer_length',
 
         # Network
         'connected_clients':            'disque.net.clients',
-        'connected_slaves':             'disque.net.slaves',
         'rejected_connections':         'disque.net.rejected',
 
         # clients
@@ -48,36 +40,13 @@ class Disque(AgentCheck):
         'client_biggest_input_buf':     'disque.clients.biggest_input_buf',
         'client_longest_output_list':   'disque.clients.longest_output_list',
 
-        # Keys
-        'evicted_keys':                 'disque.keys.evicted',
-        'expired_keys':                 'disque.keys.expired',
-
         # stats
         'latest_fork_usec':             'disque.perf.latest_fork_usec',
-
-        # pubsub
-        'pubsub_channels':              'disque.pubsub.channels',
-        'pubsub_patterns':              'disque.pubsub.patterns',
-
-        # rdb
-        'rdb_bgsave_in_progress':       'disque.rdb.bgsave',
-        'rdb_changes_since_last_save':  'disque.rdb.changes_since_last',
-        'rdb_last_bgsave_time_sec':     'disque.rdb.last_bgsave_time',
 
         # memory
         'mem_fragmentation_ratio':      'disque.mem.fragmentation_ratio',
         'used_memory':                  'disque.mem.used',
-        'used_memory_lua':              'disque.mem.lua',
-        'used_memory_peak':             'disque.mem.peak',
-        'used_memory_rss':              'disque.mem.rss',
-
-        # replication
-        'master_last_io_seconds_ago':   'disque.replication.last_io_seconds_ago',
-        'master_sync_in_progress':      'disque.replication.sync',
-        'master_sync_left_bytes':       'disque.replication.sync_left_bytes',
-        'repl_backlog_histlen':         'disque.replication.backlog_histlen',
-        'master_repl_offset':           'disque.replication.master_repl_offset',
-        'slave_repl_offset':            'disque.replication.slave_repl_offset',
+        'used_memory_peak':             'disque.mem.used_peak'
     }
 
     RATE_KEYS = {
@@ -85,11 +54,7 @@ class Disque(AgentCheck):
         'used_cpu_sys':                 'disque.cpu.sys',
         'used_cpu_sys_children':        'disque.cpu.sys_children',
         'used_cpu_user':                'disque.cpu.user',
-        'used_cpu_user_children':       'disque.cpu.user_children',
-
-        # stats
-        'keyspace_hits':                'disque.stats.keyspace_hits',
-        'keyspace_misses':              'disque.stats.keyspace_misses',
+        'used_cpu_user_children':       'disque.cpu.user_children'
     }
 
     def __init__(self, name, init_config, agentConfig, instances=None):
@@ -206,31 +171,8 @@ class Disque(AgentCheck):
 
     def _check_replication(self, info, tags):
 
-        # Save the replication delay for each slave
-        for key in info:
-            if self.slave_key_pattern.match(key) and isinstance(info[key], dict):
-                slave_offset = info[key].get('offset')
-                master_offset = info.get('master_repl_offset')
-                if slave_offset and master_offset and master_offset - slave_offset >= 0:
-                    delay = master_offset - slave_offset
-                    # Add id, ip, and port tags for the slave
-                    slave_tags = tags[:]
-                    for slave_tag in ('ip', 'port'):
-                        if slave_tag in info[key]:
-                            slave_tags.append('slave_{0}:{1}'.format(slave_tag, info[key][slave_tag]))
-                    slave_tags.append('slave_id:%s' % key.lstrip('slave'))
-                    self.gauge('disque.replication.delay', delay, tags=slave_tags)
-
-        if REPL_KEY in info:
-            if info[REPL_KEY] == 'up':
-                status = AgentCheck.OK
-                down_seconds = 0
-            else:
-                status = AgentCheck.CRITICAL
-                down_seconds = info[LINK_DOWN_KEY]
-
-            self.service_check('disque.replication.master_link_status', status, tags=tags)
-            self.gauge('disque.replication.master_link_down_since_seconds', down_seconds, tags=tags)
+        # TODO: Check some way of finding replication metrics?
+        pass
 
     def _check_slowlog(self, instance, custom_tags):
         """Retrieve length and entries from Disque's SLOWLOG
